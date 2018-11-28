@@ -6,3 +6,4 @@
 *.hex
 *.lst
 *.lss
+.vscode/
