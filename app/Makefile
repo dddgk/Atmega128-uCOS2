@@ -47,8 +47,8 @@ TARGET = main
 # (Note: 3 is not always the best optimization level. See avr-libc FAQ.)
 OPT = 2
 
-UCOSDIR = c:/WinAVR-work/project/source
-PORTDIR = c:/WinAVR-work/project/ports
+UCOSDIR = c:/project/source
+PORTDIR = c:/project/ports
 
 INCDIR1	= $(UCOSDIR)
 INCDIR2	= $(PORTDIR)
