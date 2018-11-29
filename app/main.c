@@ -17,7 +17,6 @@ volatile INT8U LedOper;
 volatile INT8U TaskNum;
 INT8U const myMapTbl[] = {0x01, 0x02, 0x04, 0x08, 0x10, 0x20, 0x40, 0x80};
 void FndTask(void *data);
-void FndDisplayTask(void *data);
 void LedTask (void *data);
 void BuzzerTask(void* data);
 void TemperatureTask(void *data);
@@ -26,6 +25,11 @@ void InitI2C();
 int ReadTemperature(void);
 ISR(INT4_vect);
 ISR(INT5_vect);
+
+struct Mail {
+	INT8U data;
+	INT8U sel;
+};
 
 int main (void)
 {
@@ -42,14 +46,14 @@ int main (void)
 	//interrupt설정
 	OS_EXIT_CRITICAL();
 
+	Mbox=OSMboxCreate((void*)0);
 	mutex=OSMutexCreate(1,&err);
 	t_grp=OSFlagCreate(myMapTbl[TaskNum],&err);
 	OSTaskCreate(FndTask, (void *)0, (void *)&TaskStk[0][TASK_STK_SIZE - 1], 1);
-	OSTaskCreate(FndDisplayTask, (void *)0, (void *)&TaskStk[1][TASK_STK_SIZE - 1], 2);
-	OSTaskCreate(LedTask, (void *)0, (void *)&TaskStk[2][TASK_STK_SIZE - 1], 3);
-	OSTaskCreate(BuzzerTask, (void *)0, (void *)&TaskStk[3][TASK_STK_SIZE - 1], 4);
-	OSTaskCreate(TemperatureTask, (void *)0, (void *)&TaskStk[4][TASK_STK_SIZE - 1], 5);
-	OSTaskCreate(LightTask, (void *)0, (void *)&TaskStk[5][TASK_STK_SIZE - 1], 6);
+	OSTaskCreate(LedTask, (void *)0, (void *)&TaskStk[1][TASK_STK_SIZE - 1], 2);
+	OSTaskCreate(BuzzerTask, (void *)0, (void *)&TaskStk[2][TASK_STK_SIZE - 1], 3);
+	OSTaskCreate(TemperatureTask, (void *)0, (void *)&TaskStk[3][TASK_STK_SIZE - 1], 4);
+	OSTaskCreate(LightTask, (void *)0, (void *)&TaskStk[4][TASK_STK_SIZE - 1], 5);
 
 	OSStart();
 
@@ -136,32 +140,19 @@ int ReadTemperature(void)
 
 void FndTask (void *data)
 {
-	INT8U	err;
-
-	data = data;
-
+	INT8U err;
+	data = data;	
+	DDRC = 0xff;
+	DDRG = 0x0f;
+	struct Mail* fnddata;
 	while (1) {
 		// FndNum pend
-
+		fnddata=(struct Mail*)OSMboxPend(Mbox,0,&err);
+		PORTG=myMapTbl[fnddata->sel];
+		PORTC=fnddata->data;
 		OSTimeDlyHMSM(0, 0, 0, 100);
 	}
 }
-
-void FndDisplayTask (void *data)
-{
-	unsigned char FND_DATA[ ]= {0x3f, 0x06, 0x5b, 0x4f, 0x66, 0x6d, 0x7d, 0x27, 0x7f, 0x6f, 0x77, 0x7c, 0x39, 0x5e, 0x79, 0x71, 0x80, 0x40, 0x08, 0x00};
-	unsigned int num[4];
-
-	data = data;
-
-	DDRC = 0xff;
-	DDRG = 0x0f;
-
-	while(1)  {
-		OSTimeDlyHMSM(0,0,0,20);
-	}
-}
-
 
 void LedOperation(INT8U oper, INT8U* led, INT8U* ledstatus) {
 	switch(oper) {
@@ -211,19 +202,28 @@ void LedOperation(INT8U oper, INT8U* led, INT8U* ledstatus) {
 
 void LedTask (void *data)
 {
+	const unsigned char LED[4]={0,0x38,0x79,0x3F};	//LED 출력위함
+	INT8U sel=0;
 	INT8U err;
 	INT8U led=0x01;
 	INT8U status=1;
+	struct Mail fnddata;
 	DDRA=0xFF;
 	data=data;
 	while(1) {
 		OSFlagPend(t_grp,0x01,OS_FLAG_WAIT_SET_ALL,0,&err);
 		LedOperation(LedOper,&led,&status);
+		fnddata.data=LED[sel];
+		fnddata.sel=sel;
+		OSMboxPost(Mbox,&fnddata);
+		sel=(sel+1)&0x03;
 		OSTimeDlyHMSM(0,0,0,200);
 	}
 }
 
-void BuzzerTask(void* data) {
+void BuzzerTask(void* data) {	
+	const unsigned char BUZZ[4]={0x7F,0x3E,0x5B,0x5B};	//BUZZ 출력위함
+	INT8U sel=0;
 	INT8U err;
 	//INT8U delay=17;
 	INT8U on=1;
