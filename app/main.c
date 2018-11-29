@@ -189,7 +189,6 @@ void LedOperation(INT8U oper, INT8U* led, INT8U* ledstatus) {
 			PORTA=0x00;
 			*ledstatus=1;
 		}
-		PORTA=(*led);
 		break;
 		case 3:		//왼쪽오른쪽반복
 		PORTA=(*led);
