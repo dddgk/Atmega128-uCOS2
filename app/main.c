@@ -9,7 +9,9 @@
 
 OS_STK TaskStk[N_TASKS][TASK_STK_SIZE];
 OS_EVENT* Mbox;
+//FND 메일박스
 OS_EVENT* LightMbox;
+//광센서 메일박스
 OS_EVENT* mutex;
 OS_EVENT* MsgQ;
 OS_FLAG_GRP* t_grp;		//task의 실행 순서를 정하는 EventFlag
@@ -28,6 +30,7 @@ const INT8U myMapTbl[] = {0x01, 0x02, 0x04, 0x08, 0x10, 0x20, 0x40, 0x80};
 const INT8U LED[4]={0,0x38,0x79,0x3F};	//LED 출력위함
 const INT8U BUZZ[4]={0x7F,0x3E,0x5B,0x5B};	//BUZZ 출력위함
 const INT8U DIGIT[12]={0x3f,0x06,0x5b,0x4f,0x66,0x6d,0x7c,0x07,0x7f,0x67,0x40,0x00};
+//0,1,2,3,4,5,6,7,8,9,-,공백
 const INT8U rabbit[25]={7,4,4,7,4,0,2,4,2,0,4,7,12,7,12,7,12,7,4,7,2,5,4,2,0};
 const INT8U rabbit_dly[25]={4,2,2,2,2,4,4,2,2,2,2,4,3,1,2,2,2,2,4,4,2,2,2,2,4};
 const INT8U canon[]={
@@ -66,7 +69,7 @@ ISR(TIMER2_OVF_vect);
 struct Mail {
 	INT8U data;
 	INT8U sel;
-};
+};//FND 메일박스위한 구조체
 
 int main (void)
 {
@@ -88,7 +91,7 @@ int main (void)
 	mutex=OSMutexCreate(1,&err);
 	t_grp=OSFlagCreate(myMapTbl[TaskNum],&err);
 	MsgQ=OSQCreate(MsgQTbl,2);
-
+	//메일박스, 뮤텍스, 이벤트플래그, 메시지큐 생성
 	
 	OSTaskCreate(TemperatureTask, (void *)0, (void *)&TaskStk[0][TASK_STK_SIZE - 1], 2);
 	OSTaskCreate(ReadTemperatureTask, (void *)0, (void *)&TaskStk[1][TASK_STK_SIZE - 1], 3);
@@ -98,6 +101,7 @@ int main (void)
 	OSTaskCreate(BuzzerTask, (void *)0, (void *)&TaskStk[5][TASK_STK_SIZE - 1], 7);
 	OSTaskCreate(FndDisplayTask, (void *)0, (void *)&TaskStk[6][TASK_STK_SIZE - 1], 8);
 	OSTaskCreate(FndTask, (void *)0, (void *)&TaskStk[7][TASK_STK_SIZE - 1], 9);
+	//Task 생성
 
 	OSStart();
 
@@ -109,32 +113,33 @@ int main (void)
 //받는 Task가 2개 data pend해서 합침
 /*
 SW1: Task Switching용, 한번 누를때마다 LED->버저->광->온도 순으로 Cycle
-FND에는 LED, BUZZ, 빛 정도, 온도 표시
+FND에는 LED, BUZZ, 빛 충전정도, 온도 표시
 */
 ISR(INT4_vect) {
 	INT8U err,i;
-	OSMutexPend(mutex,1,&err) ;
-	if(err) {
+	PORTA=0x00;	//LED 초기화
+	OSMutexPend(mutex,1,&err);
+	if(err) {	//mutex 사용중일경우 interrupt 무시
 		return;
 	}
 	OSFlagPend(t_grp,myMapTbl[TaskNum],OS_FLAG_WAIT_SET_ALL+OS_FLAG_CONSUME,0,&err);
-	TaskNum=(TaskNum+1)&0x03;
-	PORTA=0x00;
+	//현재 Task Flag 없애기
+	TaskNum=(TaskNum+1)&0x03;	//다른 Task로 전환
 	switch(TaskNum) {
 		case 0:
-		for(i=0;i<4;i++) {
+		for(i=0;i<4;i++) {		//FND에 LED 표시
 			FNDData[i]=LED[3-i];
 		}
 		break;
 		case 1:
 		IND=0;
-		for(i=0;i<4;i++) {
+		for(i=0;i<4;i++) {		//FND에 BUZZ 표시
 			FNDData[i]=BUZZ[3-i];
 		}
 		break;
 	}
 	OSMutexPost(mutex);
-	OSFlagPost(t_grp,myMapTbl[TaskNum],OS_FLAG_SET,&err);
+	OSFlagPost(t_grp,myMapTbl[TaskNum],OS_FLAG_SET,&err);	//Task Flag SET
 }
 
 /*
@@ -147,10 +152,10 @@ Buzzer: 도레미파솔라시도~, 도시라솔파미레도~ , 음악 하나선�
 ISR(INT5_vect) {
 	INT8U err;
 	OSMutexPend(mutex,1,&err);
-	if(err) {
+	if(err) {	//뮤텍스 사용중일 시 인터럽트 무시
 		return;
 	}
-	switch(TaskNum) {
+	switch(TaskNum) {	//Task 전환이 필요한 Task만 수행(LED, BUZZER)
 		case 0:		//LED
 		LedOper=(LedOper+1)&0x03;
 		break;
@@ -163,7 +168,7 @@ ISR(INT5_vect) {
 }
 
 ISR(TIMER2_OVF_vect) {
-	if(status) {
+	if(status) {	//음계간의 딜레이 주기위함
 		if(on) {
 			PORTB=0x00;
 			on=0;
@@ -171,7 +176,7 @@ ISR(TIMER2_OVF_vect) {
 			PORTB=0x10;
 			on=1;
 		}
-		TCNT2=Frequency[fre];
+		TCNT2=Frequency[fre];	//음 결정
 	}
 }
 
@@ -181,11 +186,11 @@ void FndTask (void *data)
 	INT8U sel=0;
 	struct Mail fnddata;
 	while (1) {
-		fnddata.data=FNDData[sel];
-		fnddata.sel=sel;
+		fnddata.data=FNDData[sel];	//표시할 수 결정
+		fnddata.sel=sel;			//표시할 FND 위치결정
 		sel=(sel+1)&0x03;
-		OSMboxPost(Mbox,&fnddata);
-		OSTimeDlyHMSM(0,0,0,2);
+		OSMboxPost(Mbox,&fnddata);	//메일박스로 전송(FndDisplayTask로)
+		OSTimeDlyHMSM(0,0,0,2);	//2ms delay
 	}
 }
 
@@ -193,13 +198,13 @@ void FndDisplayTask (void *data)
 {
 	INT8U err;
     data = data;
-    DDRC = 0xff;	
-    DDRG = 0x0f;
+    DDRC = 0xff;	//FND 출력포트 출력모드
+    DDRG = 0x0f;	//FND 선택포트 출력모드
 	struct Mail fnddata;
     while(1)  {
-		fnddata=*(struct Mail*)OSMboxPend(Mbox,0,&err);
-		PORTG=myMapTbl[fnddata.sel];
-		PORTC=fnddata.data;		
+		fnddata=*(struct Mail*)OSMboxPend(Mbox,0,&err);	//FndTask로 값받음
+		PORTG=myMapTbl[fnddata.sel];	//출력할 위치결정
+		PORTC=fnddata.data;				//FND 출력
     }
 }
 
@@ -259,30 +264,30 @@ void LedTask (void *data)
 	DDRA=0xFF;		//LED 출력모드
 	data=data;
 	while(1) {
-		PORTA=0x00;
+		PORTA=0x00;	//LED초기화
 		OSFlagPend(t_grp,0x01,OS_FLAG_WAIT_SET_ALL,0,&err);
-		LedOperation(LedOper,&led,&status);
+		LedOperation(LedOper,&led,&status);	//LED 동작모드 결정
 		OSTimeDlyHMSM(0,0,0,200);
 	}
 }
 
 void BuzzerTask(void* data) {	
 	INT8U err;
-	INT16U dly=0;
-	DDRB=0x10;
-	TCCR2 = 0x03;		//timer2 32분주 -> Buzzer 위함
-	fre=0;
-	TIMSK |= 0x40;	 //Timer2 Overflow Interrupt 활성화
 	data=data;
+	INT16U dly=0;		//음계 길이 결정
+	fre=0;				//음계 결정 변수 초기화
+	DDRB=0x10;			//버저 포트 출력모드
+	TCCR2 = 0x03;		//timer2 32분주 -> Buzzer 위함
+	TIMSK |= 0x40;	 //Timer2 Overflow Interrupt 활성화
 	while(1) {
 		status=0;
-		OSTimeDlyHMSM(0,0,0,50);
+		OSTimeDlyHMSM(0,0,0,50);	//음계간 딜레이
 		OSFlagPend(t_grp,0x02,OS_FLAG_WAIT_SET_ALL,0,&err);
-		fre=((BuzzOper==0) ? rabbit[IND]:canon[IND]);
-		dly=((BuzzOper==0) ? rabbit_dly[IND]:canon_dly[IND]/2);
-		IND=(IND+1)%((BuzzOper==0) ? 26:113);
-		status=1;
-		OSTimeDlyHMSM(0,0,0,dly*125);
+		fre=((BuzzOper==0) ? rabbit[IND]:canon[IND]);	//operation에 따라 음계결정
+		dly=((BuzzOper==0) ? rabbit_dly[IND]:canon_dly[IND]/2);	//음계 길이 결정
+		IND=(IND+1)%((BuzzOper==0) ? 26:113);	//다음음계로 변경
+		status=1;		//버저 출력
+		OSTimeDlyHMSM(0,0,0,dly*125);	//음계길이만큼 딜레이
 	}
 }
 
@@ -292,16 +297,17 @@ void ReadLightTask(void* data) {
 	data=data;
 	INT8U low,high;
 	INT16U value;
-	ADMUX=0x00;
-	ADCSRA=0x87;
+	ADMUX=0x00;	//ADMUX ADC0 사용
+	ADCSRA=0x87;	//ADC사용, 프리스케일러 128분주
 	while(1) {
 		OSFlagPend(t_grp,0x04,OS_FLAG_WAIT_SET_ALL,0,&err);
-		ADCSRA|=0x40;
-		while((ADCSRA & 0x10) != 0x10);
+		ADCSRA|=0x40;	//ADC 변환 시작
+		while((ADCSRA & 0x10) != 0x10);	//변환 완료까지 대기
 		low=ADCL;
 		high=ADCH;
 		value=(high<<8) | low;
-		OSMboxPost(LightMbox,&value);
+		//값 받아와서 변환
+		OSMboxPost(LightMbox,&value);	//Mailbox로 전송
 		OSTimeDlyHMSM(0,0,0,50);
 	}
 }
@@ -310,11 +316,11 @@ void ReadLightTask(void* data) {
 void LightTask(void* data) {
 	INT8U err,i;
 	data=data;
-	const INT16U LIGHT=871;
+	const INT16U LIGHT=871;	//빛의 세기 기준 결정위함
 	INT16U val;
-	INT16U Elec=0;
+	INT16U Elec=0;	//충전정도 결정 변수
 	INT16U tmp;
-	INT8U LED=0x00;
+	INT8U led=0x00;	//LED 관련 변수
 	while(1) {
 		val=*(INT16U*)OSMboxPend(LightMbox,0,&err);
 		if(val>=LIGHT) {
@@ -326,21 +332,21 @@ void LightTask(void* data) {
 				Elec-=4;
 			}
 		}
-		LED=0x00;
-		tmp=Elec/125;
-		if(Elec) {
+		led=0x00;
+		tmp=Elec/125;	//LED 8개이므로 8로 나눠 켜짐정도 결정
+		if(Elec) {	//0이면 아예 안켜지고 나머지는 켜짐
 			for(i=0;i<=tmp;i++) {
-				LED|=myMapTbl[i];
+				led|=myMapTbl[i];
 			}
 		}
-		PORTA=LED;
+		PORTA=led;	//LED on
 		i=0;
 		tmp=Elec;
 		OSMutexPend(mutex,1,&err);
 		if(err) {
 			continue;
 		}
-		while(i<4) {			
+		while(i<4) {	//FND에 값 100.0 단위로 표시
 			FNDData[i]=DIGIT[tmp%10];
 			if(i==1) {
 				FNDData[i]|=0x80;
@@ -368,30 +374,33 @@ void TemperatureTask (void *data)
 	data = data;
 	INT8U low,high;
 	int value;
-	INT8U value_int,value_deci;
+	INT8U value_int,value_deci;		//정수부분, 실수부분
 	while (1)  {
 		low=0;
 		high=0;
 		low=*(INT8U*)OSQPend(MsgQ,0,&err);
 		high=*(INT8U*)OSQPend(MsgQ,0,&err);
+		//메시지큐에서 값 받음
 		value=high;
 		value<<=8;
 		value|=low;
 		OSMutexPend(mutex,1,&err);
-		if(err) {
+		if(err) {		//뮤텍스 사용중일경우 넘어감
 			continue;
 		}
-		if((value&0x8000) != 0x8000) {
+		if((value&0x8000) != 0x8000) {	
 			FNDData[3]=DIGIT[11];
 		} else {
-			FNDData[3]=DIGIT[10];
+			FNDData[3]=DIGIT[10];	//음수이면 - 표시
 			value=(~value)-1;
 		}
 		value_int=(INT8U)((value&0x7f00)>>8);
 		value_deci=(INT8U)(value&0x00ff);
-		FNDData[2]=DIGIT[(value_int/10)%10];
+		FNDData[2]=DIGIT[(value_int/10)%10];	
 		FNDData[1]=(DIGIT[value_int%10]|0x80);
+		//FND에 정수부분표시
 		FNDData[0]=DIGIT[((value_deci&0x80)==0x80)*5];
+		//FND에 실수부분표시
 		OSMutexPost(mutex);
 	}
 }
