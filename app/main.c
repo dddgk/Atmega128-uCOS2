@@ -17,20 +17,38 @@ void* MsgQTbl[2];  //Message Queue Table
 
 // 0: LED, 1: 버저, 2: 광, 3: 온도
 
-volatile INT8U FndNum;
 volatile INT8U LedOper;
 volatile INT8U BuzzOper;
 volatile INT8U TaskNum;
 volatile INT8U on=1;
 volatile INT8U IND=0;
+volatile INT8U fre=0;
 volatile INT8U status=0;
 const INT8U myMapTbl[] = {0x01, 0x02, 0x04, 0x08, 0x10, 0x20, 0x40, 0x80};
 const INT8U LED[4]={0,0x38,0x79,0x3F};	//LED 출력위함
 const INT8U BUZZ[4]={0x7F,0x3E,0x5B,0x5B};	//BUZZ 출력위함
 const INT8U DIGIT[12]={0x3f,0x06,0x5b,0x4f,0x66,0x6d,0x7c,0x07,0x7f,0x67,0x40,0x00};
-const INT8U rabbit[25]={4,2,2,4,2,0,1,3,1,0,2,4,7,4,7,4,7,4,2,4,1,3,2,1,0};
+const INT8U rabbit[25]={7,4,4,7,4,0,2,4,2,0,4,7,12,7,12,7,12,7,4,7,2,5,4,2,0};
 const INT8U rabbit_dly[25]={4,2,2,2,2,4,4,2,2,2,2,4,3,1,2,2,2,2,4,4,2,2,2,2,4};
-const INT8U Frequency[8]={17,43,66,77,97,114,129,137};
+const INT8U canon[]={
+	19,16,17,19,16,17,19,11,9,11,12,14,16,17,
+	16,12,14,16,4,5,7,9,7,5,7,12,11,12,
+	9,12,11,9,7,5,7,5,4,5,7,9,11,12,
+	9,12,11,12,11,12,11,9,11,12,14,16,17,19,
+	19,16,17,19,16,17,19,11,9,11,12,14,16,17,
+	16,12,14,16,4,5,7,9,7,5,7,12,11,12,
+	9,12,11,9,7,5,7,5,4,5,7,9,11,12,
+	9,12,11,12,11,12,11,12,14,12,11,12,9,11,12
+};
+const INT8U canon_dly[]={
+	4,2,2,4,2,2,2,2,2,2,2,2,2,2,4,2,2,4,2,2,2,2,2,2,2,2,2,2,
+	4,2,2,4,2,2,2,2,2,2,2,2,2,2,4,2,2,4,2,2,2,2,2,2,2,2,2,2,
+	4,2,2,4,2,2,2,2,2,2,2,2,2,2,4,2,2,4,2,2,2,2,2,2,2,2,2,2,
+	4,2,2,4,2,2,2,2,2,2,2,2,2,2,4,2,2,4,2,2,2,2,2,2,2,2,2,2,8
+};
+const INT8U Frequency[25]={17,31,43,55,66,77,87,97,106,114,122,129,137,143,150,156,161,167,172,176,181,185,189,193,196};
+//도(0),도#(1),레(2),레#(3),미(4),파(5),파#(6),솔(7),솔#(8),라(9),라#(10),시(11)
+//도(12),도#(13),레(14),레#(15),미(16),파(17),파#(18),솔(19),솔#(20),라(21),라#(22),시(23),도(24)
 INT8U FNDData[4]={0x3F,0x79,0x38,0};
 void FndTask(void *data);
 void FndDisplayTask(void *data);
@@ -59,8 +77,8 @@ int main (void)
 	TIMSK = 0x01;
 	TCNT0 = 256 - (CPU_CLOCK_HZ / OS_TICKS_PER_SEC / 1024);
 	DDRE=0xCF;	//SW 입력 모드
-	EICRB=0x0A;
-	EIMSK=0x30;
+	EICRB=0x0A;	//SW Falling Edge
+	EIMSK=0x30;	//INT4,5 활성화
 	sei();
 	//interrupt설정
 	OS_EXIT_CRITICAL();
@@ -95,13 +113,13 @@ FND에는 LED, BUZZ, 빛 정도, 온도 표시
 */
 ISR(INT4_vect) {
 	INT8U err,i;
+	OSMutexPend(mutex,1,&err) ;
+	if(err) {
+		return;
+	}
 	OSFlagPend(t_grp,myMapTbl[TaskNum],OS_FLAG_WAIT_SET_ALL+OS_FLAG_CONSUME,0,&err);
-
-	OSMutexPend(mutex,0,&err);
 	TaskNum=(TaskNum+1)&0x03;
-	OSMutexPost(mutex);
-
-	OSMutexPend(mutex,0,&err);
+	PORTA=0x00;
 	switch(TaskNum) {
 		case 0:
 		for(i=0;i<4;i++) {
@@ -109,6 +127,7 @@ ISR(INT4_vect) {
 		}
 		break;
 		case 1:
+		IND=0;
 		for(i=0;i<4;i++) {
 			FNDData[i]=BUZZ[3-i];
 		}
@@ -127,12 +146,17 @@ Buzzer: 도레미파솔라시도~, 도시라솔파미레도~ , 음악 하나선�
 */
 ISR(INT5_vect) {
 	INT8U err;
-	OSMutexPend(mutex,0,&err);
+	OSMutexPend(mutex,1,&err);
+	if(err) {
+		return;
+	}
 	switch(TaskNum) {
 		case 0:		//LED
 		LedOper=(LedOper+1)&0x03;
 		break;
 		case 1:		//BUZZER
+		BuzzOper=(BuzzOper+1)&0x01;
+		IND=0;
 		break;
 	}
 	OSMutexPost(mutex);
@@ -147,7 +171,7 @@ ISR(TIMER2_OVF_vect) {
 			PORTB=0x10;
 			on=1;
 		}
-		TCNT2=Frequency[rabbit[IND]];
+		TCNT2=Frequency[fre];
 	}
 }
 
@@ -171,11 +195,11 @@ void FndDisplayTask (void *data)
     data = data;
     DDRC = 0xff;	
     DDRG = 0x0f;
-	struct Mail* fnddata;
+	struct Mail fnddata;
     while(1)  {
-		fnddata=(struct Mail*)OSMboxPend(Mbox,0,&err);
-		PORTG=myMapTbl[fnddata->sel];
-		PORTC=fnddata->data;		
+		fnddata=*(struct Mail*)OSMboxPend(Mbox,0,&err);
+		PORTG=myMapTbl[fnddata.sel];
+		PORTC=fnddata.data;		
     }
 }
 
@@ -247,17 +271,18 @@ void BuzzerTask(void* data) {
 	INT16U dly=0;
 	DDRB=0x10;
 	TCCR2 = 0x03;		//timer2 32분주 -> Buzzer 위함
-	TCNT2 = Frequency[IND];
+	fre=0;
 	TIMSK |= 0x40;	 //Timer2 Overflow Interrupt 활성화
 	data=data;
 	while(1) {
 		status=0;
-		OSTimeDlyHMSM(0,0,0,100);
+		OSTimeDlyHMSM(0,0,0,50);
 		OSFlagPend(t_grp,0x02,OS_FLAG_WAIT_SET_ALL,0,&err);
+		fre=((BuzzOper==0) ? rabbit[IND]:canon[IND]);
+		dly=((BuzzOper==0) ? rabbit_dly[IND]:canon_dly[IND]/2);
+		IND=(IND+1)%((BuzzOper==0) ? 26:113);
 		status=1;
-		IND=(IND+1)%25;
-		dly=rabbit_dly[IND];
-		OSTimeDlyHMSM(0,0,0,dly*200);
+		OSTimeDlyHMSM(0,0,0,dly*125);
 	}
 }
 
@@ -289,27 +314,38 @@ void LightTask(void* data) {
 	INT16U val;
 	INT16U Elec=0;
 	INT16U tmp;
+	INT8U LED=0x00;
 	while(1) {
 		val=*(INT16U*)OSMboxPend(LightMbox,0,&err);
 		if(val>=LIGHT) {
 			if(Elec!=1000) {
-				Elec++;
+				Elec+=4;
 			}
 		} else {
 			if(Elec!=0) {
-				Elec--;
+				Elec-=4;
 			}
 		}
+		LED=0x00;
 		tmp=Elec/125;
-		PORTA=0x00;
-		for(i=0;i<tmp;i++) {
-			PORTA|=myMapTbl[i];
+		if(Elec) {
+			for(i=0;i<=tmp;i++) {
+				LED|=myMapTbl[i];
+			}
 		}
+		PORTA=LED;
 		i=0;
 		tmp=Elec;
-		OSMutexPend(mutex,0,&err);
+		OSMutexPend(mutex,1,&err);
+		if(err) {
+			continue;
+		}
 		while(i<4) {			
-			FNDData[i++]=DIGIT[tmp%10];
+			FNDData[i]=DIGIT[tmp%10];
+			if(i==1) {
+				FNDData[i]|=0x80;
+			}
+			i++;
 			tmp/=10;
 		}
 		OSMutexPost(mutex);
@@ -334,18 +370,23 @@ void TemperatureTask (void *data)
 	int value;
 	INT8U value_int,value_deci;
 	while (1)  {
+		low=0;
+		high=0;
 		low=*(INT8U*)OSQPend(MsgQ,0,&err);
 		high=*(INT8U*)OSQPend(MsgQ,0,&err);
 		value=high;
 		value<<=8;
 		value|=low;
-		OSMutexPend(mutex,0,&err);
+		OSMutexPend(mutex,1,&err);
+		if(err) {
+			continue;
+		}
 		if((value&0x8000) != 0x8000) {
 			FNDData[3]=DIGIT[11];
 		} else {
 			FNDData[3]=DIGIT[10];
 			value=(~value)-1;
-		}		
+		}
 		value_int=(INT8U)((value&0x7f00)>>8);
 		value_deci=(INT8U)(value&0x00ff);
 		FNDData[2]=DIGIT[(value_int/10)%10];
@@ -389,10 +430,10 @@ void ReadTemperatureTask (void *data)
 
 		OS_EXIT_CRITICAL();
 		OSQPost(MsgQ,&low);
-		OSQPost(MsgQ,&high);
+		OSQPost(MsgQ,&high);		//메시지큐로 low, high 데이터 전송
 
 	// value post
 
-		OSTimeDlyHMSM(0, 0, 0, 200);
+		OSTimeDlyHMSM(0, 0, 0, 500);
 	}
 }
